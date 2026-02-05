@@ -7,8 +7,12 @@ from collections import deque
 # --- Cấu hình UDP ---
 UDP_IP_PC = "0.0.0.0"
 UDP_PORT_PC = 4210     # Python lắng nghe
-ESP32_IP = "192.168.1.7"   # 🟢 Địa chỉ ESP32 của bạn
-ESP32_PORT = 4210            # 🟢 Cổng UDP của ESP32
+
+# 🟢 ĐỔI IP ESP32 SAU KHI XEM SERIAL MONITOR!
+# ESP32 sẽ in ra IP khi khởi động, ví dụ: "ESP32 IP: 192.168.137.2"
+# Windows Mobile Hotspot thường dùng dải 192.168.137.x
+ESP32_IP = "192.168.137.2"   # ← Thay bằng IP thật của ESP32
+ESP32_PORT = 4210            # Cổng UDP của ESP32
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((UDP_IP_PC, UDP_PORT_PC))

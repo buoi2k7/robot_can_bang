@@ -8,7 +8,7 @@ const char *ssid = "link";
 const char *password = "buoinha132/";
 
 // 🖥️ IP máy tính chạy py
-const char *udpAddress = "192.168.1.8"; // Thay bằng IP của máy bạn
+const char *udpAddress = "192.168.1.19"; // Thay bằng IP của máy bạn
 const int udpPort = 4210;
 
 // 🌐 IP tĩnh cho ESP32
@@ -70,8 +70,28 @@ int32_t GyZ_offset_sum = 0;
 
 float alpha = 0.40;
 float robot_angle;
+float robot_angle_raw;
 float Acc_angle;
 bool vertical = false;
+float balance_angle_offset = 0.0;
+unsigned long balance_stable_start = 0;
+bool assist_mode = false;
+
+const float vertical_on_threshold = 0.5;
+const float vertical_off_threshold = 9.0;
+const float balance_stable_angle = 1.5;
+const float balance_stable_gyro = 3.0;
+const float balance_stable_pwm = 20.0;
+const unsigned long balance_stable_time_ms = 1500;
+const float balance_offset_alpha = 0.02;
+const float fall_cutoff_angle = 12.0;
+
+const float k1_min = 20.0;
+const float k1_max = 120.0;
+const float k2_min = 5.0;
+const float k2_max = 40.0;
+const float k3_min = 0.5;
+const float k3_max = 4.0;
 
 // --- SETUP & LOOP ---
 
@@ -117,25 +137,36 @@ void loop() {
 
     angle_calc();
 
+    gyroZ = GyZ / 131.0; // Convert to deg/s
+    gyroZfilt = alpha * gyroZ + (1 - alpha) * gyroZfilt;
+
+    updateBalanceReference();
+    robot_angle = robot_angle_raw - balance_angle_offset;
+    updateVerticalState();
+    updateAssistAutoTune();
+
     if (vertical) {
       digitalWrite(BRAKE_PIN, HIGH);
-
-      gyroZ = GyZ / 131.0; // Convert to deg/s
-      gyroZfilt = alpha * gyroZ + (1 - alpha) * gyroZfilt;
 
       // Emergency: Reset motor_speed nếu robot đứng gần 0 nhưng motor quay mạnh
       if (abs(robot_angle) < 0.5 && abs(motor_speed) > 4000) {
         motor_speed *= 1; // Giảm dần motor_speed về 0
       }
 
-      // Tính PID (Restore K3 nhưng nhẹ nhàng)
-      // Dấu - trước motor_speed quan trọng để tạo feedback ngược
-      pwm_s = constrain(X1 * robot_angle + X2 * gyroZfilt + X3 * -motor_speed,
-                        -255, 255);
+      if (abs(robot_angle) > fall_cutoff_angle) {
+        Motor_control(0);
+        motor_speed = 0;
+      } else {
+        // Tính PID (Restore K3 nhưng nhẹ nhàng)
+        // Dấu - trước motor_speed quan trọng để tạo feedback ngược
+        pwm_s =
+            constrain(X1 * robot_angle + X2 * gyroZfilt + X3 * -motor_speed,
+                      -255, 255);
 
-      Motor_control(pwm_s);
-      motor_speed += pwm_s;
-      motor_speed = constrain(motor_speed, -6000, 6000);
+        Motor_control(pwm_s);
+        motor_speed += pwm_s;
+        motor_speed = constrain(motor_speed, -6000, 6000);
+      }
     } else {
       Motor_control(0);
       digitalWrite(BRAKE_PIN, LOW);

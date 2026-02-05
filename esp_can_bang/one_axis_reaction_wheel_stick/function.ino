@@ -33,7 +33,7 @@ void receiveUDP() {
 // ===== HÀM CẬP NHẬT GIÁ TRỊ ĐẾN PYTHON =====
 void updateToUDP() {
   char buffer[64];
-  sprintf(buffer, "%.2f,%.2f,%.2f", pitch, pwm_s, robot_angle);
+  sprintf(buffer, "%.2f,%.2f,%.2f", pitch, (float)pwm_s, robot_angle);
 
   udp.beginPacket(udpAddress, udpPort);
   udp.print(buffer);
@@ -168,18 +168,62 @@ void angle_calc() {
   P[1][0] -= K[1] * P00_temp;
   P[1][1] -= K[1] * P01_temp;
 
-  // Kết quả Kalman
-  robot_angle = angle;
-
-  // Kiểm tra trạng thái đứng
-  if (abs(robot_angle) > 9)
-    vertical = false;
-  if (abs(robot_angle) < 0.3)
-    vertical = true;
+  // Kết quả Kalman (raw, chưa trừ offset cân bằng)
+  robot_angle_raw = angle;
 
   Serial.print(Acc_angle);
   Serial.print("__");
-  Serial.println(robot_angle);
+  Serial.println(robot_angle_raw);
+}
+
+void updateBalanceReference() {
+  bool stable = abs(robot_angle_raw) < balance_stable_angle &&
+                abs(gyroZfilt) < balance_stable_gyro &&
+                abs(pwm_s) < balance_stable_pwm;
+
+  if (stable) {
+    if (balance_stable_start == 0) {
+      balance_stable_start = millis();
+    }
+
+    if (millis() - balance_stable_start >= balance_stable_time_ms) {
+      balance_angle_offset =
+          (1.0 - balance_offset_alpha) * balance_angle_offset +
+          balance_offset_alpha * robot_angle_raw;
+      assist_mode = true;
+    }
+  } else {
+    balance_stable_start = 0;
+    assist_mode = false;
+  }
+}
+
+void updateVerticalState() {
+  if (abs(robot_angle) > vertical_off_threshold)
+    vertical = false;
+  if (abs(robot_angle) < vertical_on_threshold)
+    vertical = true;
+}
+
+void updateAssistAutoTune() {
+  if (!assist_mode)
+    return;
+
+  float abs_angle = abs(robot_angle);
+  float abs_rate = abs(gyroZfilt);
+
+  if (abs_angle > 2.5) {
+    X1 = max(k1_min, X1 - 0.2f);
+    X2 = min(k2_max, X2 + 0.1f);
+  } else if (abs_angle < 0.8 && abs_rate < 2.0) {
+    X1 = min(k1_max, X1 + 0.1f);
+  }
+
+  if (abs_rate > 6.0) {
+    X2 = min(k2_max, X2 + 0.05f);
+  }
+
+  X3 = constrain(X3, k3_min, k3_max);
 }
 
 void setPWM(int dutyCycle) {
